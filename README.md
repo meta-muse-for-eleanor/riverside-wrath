@@ -34,15 +34,20 @@ No dependencies beyond the standard library.
 ## How it works
 
 - **Polluters (P)** wander in from the banks and toss **trash (\*)** into the water.
-- Trash drifts downstream. If it reaches the estuary, your **purity** drops.
-  At zero purity, the river is tamed — game over.
+- **Dumpers (D)** are slower but meaner: they unload a whole column of trash
+  and are worth double points when scared off.
+- **Sludge (#)** drifts in with the trash — slower, but a breach costs double
+  purity. Cleansing it pays double.
+- Trash drifts downstream. If it reaches the estuary, your **purity** drops
+  (and your combo breaks). At zero purity, the river is tamed — game over.
 - **Surges** destroy trash in a radius and send polluters fleeing. Every
   cleanse feeds your **wrath** meter.
+- Chain cleanses quickly to build a **combo** multiplier (up to x8).
 - At full wrath, press **X** to call the **flood**: it sweeps the whole river
   clean and restores some purity.
 - Score milestones raise your **level**, and the polluters only get bolder.
-
-Your best score is kept in `~/.riverside-wrath-best`.
+- The screen flashes when trash breaches, and your top 5 scores live on in
+  the **Hall of Wrath** (`~/.riverside-wrath-best`).
 
 ## Layout
 

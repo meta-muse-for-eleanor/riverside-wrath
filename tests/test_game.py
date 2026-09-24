@@ -28,7 +28,7 @@ def check(name, fn):
 def test_trash_drifts_and_breaches():
     g = GameState(seed=1)
     g.spawn_timer = 10 ** 9  # no auto-spawns during the test
-    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1})
+    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1, "kind": "trash"})
     purity = g.purity
     g.tick()
     assert len(g.trash) == 0, "breached trash should be removed"
@@ -38,8 +38,8 @@ def test_trash_drifts_and_breaches():
 
 def test_surge_cleanses_nearby_trash():
     g = GameState(seed=2)
-    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5})
-    g.trash.append({"x": 1, "y": PLAY_TOP, "cd": 5})  # far away
+    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5, "kind": "trash"})
+    g.trash.append({"x": 1, "y": PLAY_TOP, "cd": 5, "kind": "trash"})  # far away
     assert g.surge() is True
     assert len(g.trash) == 1, "only nearby trash should be cleansed"
     assert g.score == GameState.TRASH_SCORE
@@ -50,7 +50,7 @@ def test_surge_cleanses_nearby_trash():
 def test_surge_scares_polluters():
     g = GameState(seed=3)
     g.polluters.append({"x": g.spirit_x + 2, "y": g.spirit_y,
-                        "side": -1, "state": "in", "t": 0})
+                        "side": -1, "kind": "walker", "state": "in", "t": 0})
     assert g.surge() is True
     assert len(g.polluters) == 0, "nearby polluter should flee"
     assert g.score == GameState.POLLUTER_SCORE
@@ -60,7 +60,7 @@ def test_surge_scares_polluters():
 def test_polluter_walks_in_and_litters():
     g = GameState(seed=4)
     g.spawn_timer = 10 ** 9
-    p = {"x": 2, "y": 10, "side": -1, "state": "in", "t": 0}
+    p = {"x": 2, "y": 10, "side": -1, "kind": "walker", "state": "in", "t": 0}
     g.polluters.append(p)
     edge = g.river_left - 1
     for _ in range(500):
@@ -82,8 +82,8 @@ def test_wrath_unleash_clears_everything():
     g.spawn_timer = 10 ** 9
     g.purity = 60
     g.wrath = 100
-    g.trash = [{"x": 10, "y": 10, "cd": 5}, {"x": 12, "y": 12, "cd": 5}]
-    g.polluters = [{"x": 5, "y": 5, "side": 1, "state": "in", "t": 0}]
+    g.trash = [{"x": 10, "y": 10, "cd": 5, "kind": "trash"}, {"x": 12, "y": 12, "cd": 5, "kind": "trash"}]
+    g.polluters = [{"x": 5, "y": 5, "side": 1, "kind": "walker", "state": "in", "t": 0}]
     assert g.unleash_wrath() is True
     assert g.trash == [] and g.polluters == []
     assert g.wrath == 0
@@ -96,7 +96,7 @@ def test_game_over_at_zero_purity():
     g = GameState(seed=6)
     g.spawn_timer = 10 ** 9
     g.purity = 5
-    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1})
+    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1, "kind": "trash"})
     g.tick()
     assert g.game_over is True
     assert g.purity == 0
@@ -128,6 +128,79 @@ def test_level_increases_spawn_pressure():
     interval_angry = fast.spawn_timer
     assert interval_calm == 31, "level 1 interval should be 31, got {}".format(interval_calm)
     assert interval_angry < interval_calm, "higher level should spawn faster"
+
+
+def test_combo_multiplies_chained_cleanses():
+    g = GameState(seed=9)
+    g.spawn_timer = 10 ** 9
+    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5, "kind": "trash"})
+    assert g.surge() is True
+    assert g.score == 10 and g.combo == 1
+    g.surge_cooldown = 0  # test-only reset
+    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5, "kind": "trash"})
+    assert g.surge() is True
+    assert g.combo == 2, "chained cleanse should raise the combo"
+    assert g.score == 10 + 20, "second cleanse should score double"
+    # let the combo window expire
+    g.surge_cooldown = 0
+    for _ in range(GameState.COMBO_WINDOW + 1):
+        g.tick()
+    assert g.combo == 0, "combo should expire"
+    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5, "kind": "trash"})
+    before = g.score
+    assert g.surge() is True
+    assert g.score == before + 10, "fresh combo should score base points"
+
+
+def test_breach_resets_combo():
+    g = GameState(seed=10)
+    g.spawn_timer = 10 ** 9
+    g.combo = 3
+    g.combo_timer = GameState.COMBO_WINDOW
+    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1, "kind": "trash"})
+    g.tick()
+    assert g.combo == 0 and g.combo_timer == 0, "a breach should break the combo"
+
+
+def test_dumper_dumps_triple_trash():
+    g = GameState(seed=11)
+    g.spawn_timer = 10 ** 9
+    edge = g.river_left - 1
+    g.polluters.append({"x": edge, "y": 10, "side": -1, "kind": "dumper",
+                        "state": "litter", "t": 10})
+    for _ in range(3):  # toss happens when the litter timer hits 7
+        g.tick()
+    assert len(g.trash) == 3, "dumper should dump three trash, got {}".format(len(g.trash))
+    ys = sorted(t["y"] for t in g.trash)
+    assert ys == [9, 10, 11], "dumper trash should fan out vertically"
+
+
+def test_dumper_scare_worth_more():
+    g = GameState(seed=12)
+    g.spawn_timer = 10 ** 9
+    g.polluters.append({"x": g.spirit_x + 2, "y": g.spirit_y, "side": -1,
+                        "kind": "dumper", "state": "in", "t": 0})
+    assert g.surge() is True
+    assert g.score == GameState.DUMPER_SCORE
+    assert g.wrath == GameState.WRATH_PER_DUMPER
+
+
+def test_sludge_breach_hits_harder():
+    g = GameState(seed=13)
+    g.spawn_timer = 10 ** 9
+    g.trash.append({"x": g.spirit_x, "y": g.play_bottom, "cd": 1, "kind": "sludge"})
+    purity = g.purity
+    g.tick()
+    assert g.purity == purity - GameState.SLUDGE_DAMAGE
+
+
+def test_sludge_cleanses_for_more():
+    g = GameState(seed=14)
+    g.spawn_timer = 10 ** 9
+    g.trash.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 5, "kind": "sludge"})
+    assert g.surge() is True
+    assert g.score == GameState.SLUDGE_SCORE
+    assert g.wrath == GameState.WRATH_PER_SLUDGE
 
 
 if __name__ == "__main__":
