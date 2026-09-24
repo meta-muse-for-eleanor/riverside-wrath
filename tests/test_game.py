@@ -108,11 +108,27 @@ def test_game_over_at_zero_purity():
 def test_spirit_movement_clamped():
     g = GameState(seed=7)
     for _ in range(1000):
-        g.move_spirit(-1)
+        g.move_spirit(dy=-1)
     assert g.spirit_y == PLAY_TOP
     for _ in range(1000):
-        g.move_spirit(1)
+        g.move_spirit(dy=1)
     assert g.spirit_y == g.play_bottom
+
+
+def test_spirit_horizontal_movement_clamped_to_river():
+    g = GameState(seed=7)
+    for _ in range(1000):
+        g.move_spirit(dx=-1)
+    assert g.spirit_x == g.river_left, "spirit should stop at the west bank"
+    for _ in range(1000):
+        g.move_spirit(dx=1)
+    assert g.spirit_x == g.river_right, "spirit should stop at the east bank"
+    # combined movement
+    g2 = GameState(seed=7)
+    start_x, start_y = g2.spirit_x, g2.spirit_y
+    g2.move_spirit(dx=2, dy=-3)
+    assert g2.spirit_x == start_x + 2
+    assert g2.spirit_y == start_y - 3
 
 
 def test_level_increases_spawn_pressure():
@@ -268,6 +284,64 @@ def test_trash_near_estuary_warning():
     g.trash.append({"x": 10, "y": g.play_bottom, "cd": 5, "kind": "trash"})
     g.trash.append({"x": 11, "y": g.play_bottom - 5, "cd": 5, "kind": "trash"})
     assert g.trash_near_estuary(threshold=3) == 1, "only one trash near edge"
+
+
+def test_max_combo_tracked():
+    g = GameState(seed=7)
+    for _ in range(5):
+        g._cleanse_trash("trash")
+        g.combo_timer = g.COMBO_WINDOW  # keep the chain alive
+    assert g.max_combo >= 5
+    # combo can reset but the max stays
+    g.combo = 0
+    assert g.max_combo >= 5
+
+
+def test_droplet_pickup_restores_purity():
+    g = GameState(seed=7)
+    g.purity = 50
+    g.droplets.append({"x": g.spirit_x, "y": g.spirit_y, "cd": 1})
+    before = g.score
+    g._check_droplet_pickup()
+    assert g.droplets == []
+    assert g.purity == 60
+    assert g.score == before + 15
+    assert g.droplets_collected == 1
+
+
+def test_droplet_pickup_capped_at_full_purity():
+    g = GameState(seed=7)
+    g.purity = 95
+    g.droplets.append({"x": g.spirit_x + 1, "y": g.spirit_y, "cd": 1})
+    g._check_droplet_pickup()
+    assert g.purity == 100
+
+
+def test_droplet_reaching_estuary_is_harmless():
+    g = GameState(seed=7)
+    g.purity = 80
+    g.droplets.append({"x": g.river_left, "y": g.play_bottom, "cd": 1})
+    g.tick()  # steps the droplet past the play area
+    assert g.droplets == []
+    assert g.purity == 80, "expired droplets should not damage purity"
+    assert g.breaches == 0
+
+
+def test_surge_collects_nearby_droplets():
+    g = GameState(seed=7)
+    g.purity = 50
+    g.droplets.append({"x": g.spirit_x + 1, "y": g.spirit_y, "cd": 1})
+    assert g.surge() is True
+    assert g.droplets == []
+    assert g.purity == 60
+
+
+def test_droplets_spawn_over_time():
+    g = GameState(seed=7)
+    g.droplet_timer = 1
+    g.tick()
+    assert len(g.droplets) == 1
+    assert g.droplets[0]["y"] in (PLAY_TOP, PLAY_TOP + 1)
 
 
 if __name__ == "__main__":

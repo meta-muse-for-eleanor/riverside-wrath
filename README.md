@@ -44,7 +44,7 @@ riverside-wrath --help   # usage
 
 | Key | Action |
 | --- | ------ |
-| ↑ / ↓ or W / S | Swim up and down the river |
+| ↑ / ↓ / ← / → or W / A / S / D | Swim up, down, and across the river |
 | SPACE | Surge — cleanse nearby trash, scare off polluters |
 | X | Unleash your wrath (when the meter is full) |
 | P | Pause |
@@ -68,6 +68,11 @@ riverside-wrath --help   # usage
 - Score milestones raise your **level**, and the polluters only get bolder.
   The HUD shows your progress to the next level.
 - Trash near the estuary **blinks** as a warning — don't let it through!
+- A red warning line marks the estuary when trash is closing in, and the
+  purity bar flashes when purity drops below 30.
+- **Pure droplets (o)** drift downstream — swim into them (or catch them with
+  a surge) to restore 10 purity, bank 15 points, and feed your wrath a little.
+- Your **best combo** is tracked and shown on the game-over screen.
 - The screen flashes when trash breaches, and your top 5 scores live on in
   the **Hall of Wrath** (`~/.riverside-wrath-best`).
 

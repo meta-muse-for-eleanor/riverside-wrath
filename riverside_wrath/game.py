@@ -69,15 +69,25 @@ class GameState:
         self.cleansed = 0
         self.combo = 0
         self.combo_timer = 0
+        self.max_combo = 0
+        self.droplets: List[Dict] = []  # pure droplets: {"x": int, "y": int, "cd": int}
+        self.droplet_timer = 180
+        self.droplets_collected = 0
         # danger: ticks since last breach warning (for UI flash throttling)
         self.danger_flash = 0
 
     # ------------------------------------------------------------------
     # player actions
     # ------------------------------------------------------------------
-    def move_spirit(self, dy: int) -> None:
-        """Move the spirit vertically, clamped to the play area."""
+    def move_spirit(self, dx: int = 0, dy: int = 0) -> None:
+        """Move the spirit, clamped to the river.
+
+        dy moves along the river (the play area), dx moves across it
+        (clamped to the river banks). Collects any droplet touched.
+        """
+        self.spirit_x = max(self.river_left, min(self.river_right, self.spirit_x + dx))
         self.spirit_y = max(PLAY_TOP, min(self.play_bottom, self.spirit_y + dy))
+        self._check_droplet_pickup()
 
     def surge(self) -> bool:
         """Send a cleansing surge from the spirit. Returns True if fired."""
@@ -106,6 +116,14 @@ class GameState:
             else:
                 kept_polluters.append(p)
         self.polluters = kept_polluters
+        # a surge also gathers nearby pure droplets
+        kept_droplets = []
+        for d in self.droplets:
+            if self._dist2(d["x"], d["y"], self.spirit_x, self.spirit_y) <= r2:
+                self._collect_droplet()
+            else:
+                kept_droplets.append(d)
+        self.droplets = kept_droplets
         return True
 
     def unleash_wrath(self) -> bool:
@@ -144,8 +162,14 @@ class GameState:
             self._spawn_polluter()
             self.spawn_timer = self._spawn_interval()
 
+        self.droplet_timer -= 1
+        if self.droplet_timer <= 0:
+            self._spawn_droplet()
+            self.droplet_timer = self.rng.randint(150, 300)
+
         self._step_polluters()
         self._step_trash()
+        self._step_droplets()
 
         for ring in self.rings:
             ring["ttl"] -= 1
@@ -171,6 +195,7 @@ class GameState:
         else:
             self.combo = 1
         self.combo_timer = self.COMBO_WINDOW
+        self.max_combo = max(self.max_combo, self.combo)
         if kind == "sludge":
             self.score += self.SLUDGE_SCORE * self.combo
             self._add_wrath(self.WRATH_PER_SLUDGE)
@@ -279,6 +304,43 @@ class GameState:
         self.trash = kept
         if self.danger_flash > 0:
             self.danger_flash -= 1
+
+    # ------------------------------------------------------------------
+    # pure droplets (power-ups)
+    # ------------------------------------------------------------------
+    def _spawn_droplet(self) -> None:
+        x = self.rng.randint(self.river_left, self.river_right)
+        self.droplets.append({"x": x, "y": PLAY_TOP, "cd": self._trash_speed()})
+
+    def _collect_droplet(self) -> None:
+        """Bank a pure droplet: restore purity, score, feed wrath a little."""
+        self.purity = min(100, self.purity + 10)
+        self.score += 15
+        self._add_wrath(5)
+        self.droplets_collected += 1
+
+    def _check_droplet_pickup(self) -> None:
+        """Collect droplets touching the spirit (Chebyshev distance <= 1)."""
+        kept = []
+        for d in self.droplets:
+            if max(abs(d["x"] - self.spirit_x), abs(d["y"] - self.spirit_y)) <= 1:
+                self._collect_droplet()
+            else:
+                kept.append(d)
+        self.droplets = kept
+
+    def _step_droplets(self) -> None:
+        kept = []
+        for d in self.droplets:
+            d["cd"] -= 1
+            if d["cd"] <= 0:
+                d["y"] += 1
+                d["cd"] = self._trash_speed()
+            # droplets that reach the estuary simply dissolve — no penalty
+            if d["y"] <= self.play_bottom:
+                kept.append(d)
+        self.droplets = kept
+        self._check_droplet_pickup()
 
     def trash_near_estuary(self, threshold: int = 3) -> int:
         """Count trash within `threshold` rows of the estuary. For UI warnings."""

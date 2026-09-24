@@ -120,6 +120,13 @@ def draw(stdscr, game, best, paused):
                 stdscr.addch(t["y"], t["x"], "#", curses.color_pair(8) | attr)
             else:
                 stdscr.addch(t["y"], t["x"], "*", curses.color_pair(5) | attr)
+    # droplets ("o" in bright cyan) — pure water, collect them!
+    for d in game.droplets:
+        if 0 <= d["y"] < h and 0 <= d["x"] < w:
+            attr = curses.color_pair(3) | curses.A_BOLD
+            if (game.tick_count // 6) % 2 == 0:
+                attr |= curses.A_BLINK
+            stdscr.addch(d["y"], d["x"], "o", attr)
     # polluters ("P") and dumpers ("D", slower, dump triple)
     for p in game.polluters:
         if 0 <= p["y"] < h and 0 <= p["x"] < w:
@@ -151,7 +158,15 @@ def draw(stdscr, game, best, paused):
     hud = " Score {:>6}   Best {:>6}   Level {} ({})".format(
         game.score, best, game.level, game.difficulty)
     stdscr.addstr(0, 0, hud[:w - 1], curses.color_pair(7) | curses.A_BOLD)
-    status = bar("Purity", game.purity) + "   " + bar("Wrath", game.wrath)
+    purity_label = "Purity"
+    purity_attr = curses.color_pair(7)
+    if game.purity <= 30:
+        purity_label = "PURITY LOW!"
+        if (game.tick_count // 5) % 2 == 0:
+            purity_attr = curses.color_pair(4) | curses.A_BOLD | curses.A_BLINK
+        else:
+            purity_attr = curses.color_pair(4) | curses.A_BOLD
+    status = bar(purity_label, game.purity) + "   " + bar("Wrath", game.wrath)
     if game.wrath >= 100:
         status += "  READY - press X!"
     elif game.combo >= 2:
@@ -164,17 +179,29 @@ def draw(stdscr, game, best, paused):
     # danger warning
     if danger:
         status += "  ! {} near edge !".format(danger)
-    stdscr.addstr(1, 0, status[:w - 1], curses.color_pair(7))
+    stdscr.addstr(1, 0, status[:w - 1], purity_attr)
     # surge cooldown indicator
     if game.surge_cooldown > 0:
         cd = " Surge ready in {}".format((game.surge_cooldown + 9) // 10)
         stdscr.addstr(1, max(0, w - len(cd) - 1), cd[:w - 1], curses.color_pair(7) | curses.A_DIM)
-    hint = "move: up/down or W/S    surge: SPACE    wrath: X    pause: P    quit: Q"
+    # estuary danger line: red when trash threatens the river mouth
+    if danger and game.play_bottom + 1 < h - 1:
+        try:
+            stdscr.addstr(game.play_bottom + 1, game.river_left,
+                          "!" * (game.river_right - game.river_left + 1),
+                          curses.color_pair(4) | curses.A_BOLD)
+        except curses.error:
+            pass
+    hint = "move: arrows/WASD  surge: SPACE  wrath: X  pause: P  quit: Q"
     stdscr.addstr(h - 1, 0, hint[:w - 1], curses.color_pair(7) | curses.A_DIM)
     if paused and not game.game_over:
         msg = " PAUSED - press P to resume "
         stdscr.addstr(h // 2, max(0, w // 2 - len(msg) // 2), msg,
                       curses.color_pair(6) | curses.A_REVERSE)
+        stats = "Score {}   Level {}   Cleansed {}   Best combo x{}   Droplets {}".format(
+            game.score, game.level, game.cleansed, game.max_combo,
+            game.droplets_collected)
+        center_text(stdscr, h // 2 + 2, stats, curses.color_pair(7) | curses.A_DIM)
 
 
 def center_text(stdscr, y, text, attr=0):
@@ -202,10 +229,12 @@ def title_screen(stdscr, difficulty="normal", seed=None):
         difficulty.upper(), "(seed {})".format(seed) if seed is not None else ""),
         curses.color_pair(5) | curses.A_BOLD)
     y += 1
-    center_text(stdscr, y, "Controls: UP/DOWN or W/S to swim, SPACE to surge,",
+    center_text(stdscr, y, "Controls: arrows or WASD to swim, SPACE to surge,",
                 curses.color_pair(7) | curses.A_DIM)
     center_text(stdscr, y + 1, "X to unleash your wrath when the meter is full, Q to quit",
                 curses.color_pair(7) | curses.A_DIM)
+    center_text(stdscr, y + 2, "Gather glowing droplets (o) to restore purity",
+                curses.color_pair(3) | curses.A_DIM)
     center_text(stdscr, y + 3, "-- press any key to begin --",
                 curses.color_pair(6) | curses.A_BOLD | curses.A_BLINK)
     stdscr.refresh()
@@ -221,8 +250,8 @@ def game_over_screen(stdscr, game, data):
                 curses.color_pair(7))
     center_text(stdscr, y + 4, "Final score: {}".format(game.score),
                 curses.color_pair(6) | curses.A_BOLD)
-    center_text(stdscr, y + 5, "Trash cleansed: {}   Breaches: {}".format(
-        game.cleansed, game.breaches), curses.color_pair(7) | curses.A_DIM)
+    center_text(stdscr, y + 5, "Trash cleansed: {}   Breaches: {}   Best combo: x{}".format(
+        game.cleansed, game.breaches, game.max_combo), curses.color_pair(7) | curses.A_DIM)
     y += 7
     center_text(stdscr, y, "-- HALL OF WRATH --", curses.color_pair(5) | curses.A_BOLD)
     for i, entry in enumerate(data["scores"][:MAX_SCORES], 1):
@@ -265,9 +294,13 @@ def play(stdscr, data, difficulty="normal", seed=None):
     while True:
         ch = stdscr.getch()
         if ch == curses.KEY_UP or ch in (ord("w"), ord("W")):
-            game.move_spirit(-1)
+            game.move_spirit(dy=-1)
         elif ch == curses.KEY_DOWN or ch in (ord("s"), ord("S")):
-            game.move_spirit(1)
+            game.move_spirit(dy=1)
+        elif ch == curses.KEY_LEFT or ch in (ord("a"), ord("A")):
+            game.move_spirit(dx=-1)
+        elif ch == curses.KEY_RIGHT or ch in (ord("d"), ord("D")):
+            game.move_spirit(dx=1)
         elif ch == ord(" "):
             if game.surge():
                 _beep()
