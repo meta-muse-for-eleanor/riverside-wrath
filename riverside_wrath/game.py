@@ -41,6 +41,10 @@ class GameState:
     COMBO_WINDOW = 40  # ticks a combo stays alive between cleanses
     MAX_COMBO = 8
     MAX_POLLUTERS = 6
+    POINTS_PER_LEVEL = 250
+    DROPLET_PURITY = 10
+    DROPLET_SCORE = 15
+    DROPLET_WRATH = 5
 
     def __init__(self, width: int = 80, height: int = 24, seed: int | None = None,
                  difficulty: DifficultyName = "normal"):
@@ -173,23 +177,9 @@ class GameState:
         if self.game_over:
             return
         self.tick_count += 1
-        self.level = 1 + self.score // 250
-        if self.surge_cooldown > 0:
-            self.surge_cooldown -= 1
-        if self.combo_timer > 0:
-            self.combo_timer -= 1
-            if self.combo_timer == 0:
-                self.combo = 0
-
-        self.spawn_timer -= 1
-        if self.spawn_timer <= 0:
-            self._spawn_polluter()
-            self.spawn_timer = self._spawn_interval()
-
-        self.droplet_timer -= 1
-        if self.droplet_timer <= 0:
-            self._spawn_droplet()
-            self.droplet_timer = self.rng.randint(150, 300)
+        self.level = 1 + self.score // self.POINTS_PER_LEVEL
+        self._decay_timers()
+        self._maybe_spawn()
 
         self._step_polluters()
         self._step_trash()
@@ -205,14 +195,37 @@ class GameState:
             self.purity = 0
             self.game_over = True
 
+    def _decay_timers(self) -> None:
+        """Tick down cooldowns and expire the combo when its window lapses."""
+        if self.surge_cooldown > 0:
+            self.surge_cooldown -= 1
+        if self.combo_timer > 0:
+            self.combo_timer -= 1
+            if self.combo_timer == 0:
+                self.combo = 0
+        if self.danger_flash > 0:
+            self.danger_flash -= 1
+
+    def _maybe_spawn(self) -> None:
+        """Spawn polluters and droplets when their timers run out."""
+        self.spawn_timer -= 1
+        if self.spawn_timer <= 0:
+            self._spawn_polluter()
+            self.spawn_timer = self._spawn_interval()
+
+        self.droplet_timer -= 1
+        if self.droplet_timer <= 0:
+            self._spawn_droplet()
+            self.droplet_timer = self.rng.randint(150, 300)
+
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
     @staticmethod
-    def _dist2(ax, ay, bx, by):
+    def _dist2(ax: int, ay: int, bx: int, by: int) -> int:
         return (ax - bx) ** 2 + (ay - by) ** 2
 
-    def _cleanse_trash(self, kind):
+    def _cleanse_trash(self, kind: str) -> None:
         """Score a cleanse. Chained cleanses build a combo multiplier."""
         if self.combo_timer > 0:
             self.combo = min(self.MAX_COMBO, self.combo + 1)
@@ -233,13 +246,13 @@ class GameState:
 
     def score_to_next_level(self) -> int:
         """Points needed to reach the next level."""
-        next_threshold = self.level * 250
+        next_threshold = self.level * self.POINTS_PER_LEVEL
         return max(0, next_threshold - self.score)
 
     def level_progress(self) -> float:
         """Fraction (0.0-1.0) of progress toward the next level."""
-        base = (self.level - 1) * 250
-        return min(1.0, max(0.0, (self.score - base) / 250))
+        base = (self.level - 1) * self.POINTS_PER_LEVEL
+        return min(1.0, max(0.0, (self.score - base) / self.POINTS_PER_LEVEL))
 
     def _trash_speed(self) -> int:
         base = max(2, 6 - self.level)
@@ -268,10 +281,10 @@ class GameState:
         self.polluters.append({"x": x, "y": y, "side": side, "kind": kind,
                                "state": "in", "t": 0})
 
-    def _edge_x(self, side):
+    def _edge_x(self, side: int) -> int:
         return self.river_left - 1 if side < 0 else self.river_right + 1
 
-    def _step_polluters(self):
+    def _step_polluters(self) -> None:
         alive = []
         for p in self.polluters:
             if p["state"] == "in":
@@ -299,7 +312,7 @@ class GameState:
                     alive.append(p)
         self.polluters = alive
 
-    def _toss_trash(self, p):
+    def _toss_trash(self, p: Dict) -> None:
         kind = "sludge" if self.rng.random() < 0.15 else "trash"
         speed = int(self._trash_speed() * 1.5) if kind == "sludge" else self._trash_speed()
         x = self.river_left + 1 if p["side"] < 0 else self.river_right - 1
@@ -326,8 +339,6 @@ class GameState:
             else:
                 kept.append(t)
         self.trash = kept
-        if self.danger_flash > 0:
-            self.danger_flash -= 1
 
     # ------------------------------------------------------------------
     # pure droplets (power-ups)
@@ -338,9 +349,9 @@ class GameState:
 
     def _collect_droplet(self) -> None:
         """Bank a pure droplet: restore purity, score, feed wrath a little."""
-        self.purity = min(100, self.purity + 10)
-        self.score += 15
-        self._add_wrath(5)
+        self.purity = min(100, self.purity + self.DROPLET_PURITY)
+        self.score += self.DROPLET_SCORE
+        self._add_wrath(self.DROPLET_WRATH)
         self.droplets_collected += 1
 
     def _check_droplet_pickup(self) -> None:

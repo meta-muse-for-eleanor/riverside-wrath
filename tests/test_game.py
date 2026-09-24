@@ -344,6 +344,65 @@ def test_droplets_spawn_over_time():
     assert g.droplets[0]["y"] in (PLAY_TOP, PLAY_TOP + 1)
 
 
+def test_reset_restores_initial_state():
+    g = GameState(seed=42)
+    g.score = 500
+    g.purity = 30
+    g.wrath = 80
+    g.trash.append({"x": 10, "y": 10, "cd": 5, "kind": "trash"})
+    g.polluters.append({"x": 5, "y": 5, "side": 1, "kind": "walker",
+                        "state": "in", "t": 0})
+    g.tick_count = 99
+    g.reset()
+    assert g.score == 0
+    assert g.purity == 100
+    assert g.wrath == 0
+    assert g.trash == []
+    assert g.polluters == []
+    assert g.tick_count == 0
+    assert g.game_over is False
+    assert g.level == 1
+    # dimensions survive the reset
+    assert g.spirit_x == g.width // 2
+
+
+def test_reset_replays_seed():
+    first = GameState(seed=123)
+    for _ in range(30):  # long enough for spawns to consume RNG
+        first.tick()
+    snapshot = (first.spirit_x, first.spirit_y, len(first.trash),
+                len(first.polluters), first.score)
+    assert len(first.polluters) > 0, "test needs spawns to exercise the RNG"
+    first.reset()
+    for _ in range(30):
+        first.tick()
+    assert (first.spirit_x, first.spirit_y, len(first.trash),
+            len(first.polluters), first.score) == snapshot, \
+        "reset should replay the same seed"
+
+
+def test_partition_splits_correctly():
+    yes, no = GameState._partition([1, 2, 3, 4], lambda n: n % 2 == 0)
+    assert yes == [2, 4]
+    assert no == [1, 3]
+    yes, no = GameState._partition([], lambda n: True)
+    assert yes == [] and no == []
+
+
+def test_points_per_level_drives_level_ups():
+    g = GameState(seed=1)
+    step = GameState.POINTS_PER_LEVEL
+    g.score = step - 1
+    g.tick()
+    assert g.level == 1
+    assert g.score_to_next_level() == 1
+    g.score = step
+    g.tick()
+    assert g.level == 2
+    assert g.score_to_next_level() == step
+    assert g.level_progress() == 0.0
+
+
 if __name__ == "__main__":
     for name, fn in sorted(
             [(k, v) for k, v in globals().items() if k.startswith("test_")]):

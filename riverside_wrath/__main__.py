@@ -91,13 +91,14 @@ def init_colors():
 
 
 def bar(label, value, width=10):
-    filled = int(round(value / 100 * width))
+    pct = min(100, max(0, value))
+    filled = int(round(pct / 100 * width))
     return "{} [{}{}] {:>3}%".format(
-        label, "#" * filled, "-" * (width - filled), int(value))
+        label, "#" * filled, "-" * (width - filled), int(pct))
 
 
-def draw(stdscr, game, best, paused):
-    h, w = stdscr.getmaxyx()
+def draw_terrain(stdscr, game, h, w):
+    """Draw the river water and banks."""
     wave = game.tick_count // 5
     # terrain
     for y in range(h):
@@ -108,6 +109,13 @@ def draw(stdscr, game, best, paused):
             else:
                 ch = "," if (x * 7 + y * 13) % 11 == 0 else " "
                 stdscr.addch(y, x, ch, curses.color_pair(2))
+
+
+def draw_actors(stdscr, game, h, w):
+    """Draw trash, droplets, polluters, effects and the spirit.
+
+    Returns the count of trash threatening the estuary.
+    """
     # trash ("*") and sludge ("#", slower, hurts more)
     # trash near the estuary blinks as a warning
     danger = game.trash_near_estuary()
@@ -155,6 +163,11 @@ def draw(stdscr, game, best, paused):
     # spirit
     stdscr.addch(game.spirit_y, game.spirit_x, "@",
                  curses.color_pair(3) | curses.A_BOLD)
+    return danger
+
+
+def draw_hud(stdscr, game, best, paused, danger, h, w):
+    """Draw the score line, status bars and hints."""
     # HUD
     hud = " Score {:>6}   Best {:>6}   Level {} ({})".format(
         game.score, best, game.level, game.difficulty)
@@ -203,6 +216,13 @@ def draw(stdscr, game, best, paused):
             game.score, game.level, game.cleansed, game.max_combo,
             game.droplets_collected)
         center_text(stdscr, h // 2 + 2, stats, curses.color_pair(7) | curses.A_DIM)
+
+
+def draw(stdscr, game, best, paused):
+    h, w = stdscr.getmaxyx()
+    draw_terrain(stdscr, game, h, w)
+    danger = draw_actors(stdscr, game, h, w)
+    draw_hud(stdscr, game, best, paused, danger, h, w)
 
 
 def center_text(stdscr, y, text, attr=0):
@@ -285,6 +305,33 @@ def prompt_initials(stdscr):
     return name or "YOU"
 
 
+def handle_key(game, ch):
+    """Handle one keypress during play.
+
+    Returns "quit" or "pause" for the loop to act on, else None.
+    """
+    if ch == curses.KEY_UP or ch in (ord("w"), ord("W")):
+        game.move_spirit(dy=-1)
+    elif ch == curses.KEY_DOWN or ch in (ord("s"), ord("S")):
+        game.move_spirit(dy=1)
+    elif ch == curses.KEY_LEFT or ch in (ord("a"), ord("A")):
+        game.move_spirit(dx=-1)
+    elif ch == curses.KEY_RIGHT or ch in (ord("d"), ord("D")):
+        game.move_spirit(dx=1)
+    elif ch == ord(" "):
+        if game.surge():
+            _beep()
+    elif ch in (ord("x"), ord("X")):
+        if game.unleash_wrath():
+            _beep()
+            _flash()
+    elif ch in (ord("p"), ord("P")):
+        return "pause"
+    elif ch in (ord("q"), ord("Q")):
+        return "quit"
+    return None
+
+
 def play(stdscr, data, difficulty="normal", seed=None):
     h, w = stdscr.getmaxyx()
     game = GameState(w, h, seed=seed, difficulty=difficulty)
@@ -294,25 +341,11 @@ def play(stdscr, data, difficulty="normal", seed=None):
     stdscr.nodelay(True)
     while True:
         ch = stdscr.getch()
-        if ch == curses.KEY_UP or ch in (ord("w"), ord("W")):
-            game.move_spirit(dy=-1)
-        elif ch == curses.KEY_DOWN or ch in (ord("s"), ord("S")):
-            game.move_spirit(dy=1)
-        elif ch == curses.KEY_LEFT or ch in (ord("a"), ord("A")):
-            game.move_spirit(dx=-1)
-        elif ch == curses.KEY_RIGHT or ch in (ord("d"), ord("D")):
-            game.move_spirit(dx=1)
-        elif ch == ord(" "):
-            if game.surge():
-                _beep()
-        elif ch in (ord("x"), ord("X")):
-            if game.unleash_wrath():
-                _beep()
-                _flash()
-        elif ch in (ord("p"), ord("P")):
-            paused = not paused
-        elif ch in (ord("q"), ord("Q")):
+        action = handle_key(game, ch)
+        if action == "quit":
             return
+        elif action == "pause":
+            paused = not paused
 
         if game.game_over:
             if qualifies(data, game.score):
