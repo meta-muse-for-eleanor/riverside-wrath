@@ -222,6 +222,52 @@ def test_cli_help_flag_skips_curses():
     with redirect_stdout(buf):
         front.run(["--help"])
     assert "usage" in buf.getvalue().lower(), "help flag should print usage"
+    assert "difficulty" in buf.getvalue().lower(), "help should mention difficulty"
+
+
+def test_difficulty_affects_spawn_rate():
+    from riverside_wrath.game import DIFFICULTIES
+    calm = GameState(seed=1, difficulty="calm")
+    raging = GameState(seed=1, difficulty="raging")
+    # calm should have longer spawn interval than raging at same level
+    calm.spawn_timer = 1
+    raging.spawn_timer = 1
+    calm.tick()
+    raging.tick()
+    assert calm.spawn_timer > raging.spawn_timer, \
+        "calm should spawn slower than raging"
+
+
+def test_difficulty_affects_damage():
+    calm = GameState(seed=1, difficulty="calm")
+    raging = GameState(seed=1, difficulty="raging")
+    calm_dmg = calm._breach_damage("trash")
+    raging_dmg = raging._breach_damage("trash")
+    assert raging_dmg > calm_dmg, "raging should hit harder than calm"
+    # sludge should always hurt more than trash at same difficulty
+    assert calm._breach_damage("sludge") > calm_dmg
+
+
+def test_level_progress():
+    g = GameState(seed=1)
+    g.score = 0
+    assert g.level_progress() == 0.0
+    g.score = 125
+    assert 0.4 < g.level_progress() < 0.6, "125/250 should be ~50%"
+    g.score = 250
+    # level recalculates on tick
+    g.tick()
+    assert g.level == 2
+    assert g.score_to_next_level() == 250
+
+
+def test_trash_near_estuary_warning():
+    g = GameState(seed=1)
+    g.spawn_timer = 10 ** 9
+    assert g.trash_near_estuary() == 0
+    g.trash.append({"x": 10, "y": g.play_bottom, "cd": 5, "kind": "trash"})
+    g.trash.append({"x": 11, "y": g.play_bottom - 5, "cd": 5, "kind": "trash"})
+    assert g.trash_near_estuary(threshold=3) == 1, "only one trash near edge"
 
 
 if __name__ == "__main__":

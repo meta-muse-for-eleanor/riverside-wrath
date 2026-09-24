@@ -20,6 +20,18 @@ python3 -m riverside_wrath
 
 No dependencies beyond the standard library.
 
+### Options
+
+```sh
+python3 -m riverside_wrath --difficulty raging --seed 42
+riverside-wrath --difficulty calm   # a gentler river
+```
+
+| Flag | Description |
+| ---- | ----------- |
+| `--difficulty {calm,normal,raging}` | Game difficulty (default: `normal`). Calm spawns slower and hits softer; raging spawns faster, hits harder, and attracts more dumpers. |
+| `--seed N` | Random seed for reproducible runs. Share a seed to challenge a friend on the same river. |
+
 ## Install
 
 ```sh
@@ -54,6 +66,8 @@ riverside-wrath --help   # usage
 - At full wrath, press **X** to call the **flood**: it sweeps the whole river
   clean and restores some purity.
 - Score milestones raise your **level**, and the polluters only get bolder.
+  The HUD shows your progress to the next level.
+- Trash near the estuary **blinks** as a warning — don't let it through!
 - The screen flashes when trash breaches, and your top 5 scores live on in
   the **Hall of Wrath** (`~/.riverside-wrath-best`).
 

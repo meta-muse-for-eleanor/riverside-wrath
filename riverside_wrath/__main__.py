@@ -108,12 +108,18 @@ def draw(stdscr, game, best, paused):
                 ch = "," if (x * 7 + y * 13) % 11 == 0 else " "
                 stdscr.addch(y, x, ch, curses.color_pair(2))
     # trash ("*") and sludge ("#", slower, hurts more)
+    # trash near the estuary blinks as a warning
+    danger = game.trash_near_estuary()
     for t in game.trash:
         if 0 <= t["y"] < h and 0 <= t["x"] < w:
+            near_edge = t["y"] >= game.play_bottom - 2
+            attr = curses.A_BOLD
+            if near_edge and (game.tick_count // 4) % 2 == 0:
+                attr |= curses.A_BLINK
             if t["kind"] == "sludge":
-                stdscr.addch(t["y"], t["x"], "#", curses.color_pair(8) | curses.A_BOLD)
+                stdscr.addch(t["y"], t["x"], "#", curses.color_pair(8) | attr)
             else:
-                stdscr.addch(t["y"], t["x"], "*", curses.color_pair(5) | curses.A_BOLD)
+                stdscr.addch(t["y"], t["x"], "*", curses.color_pair(5) | attr)
     # polluters ("P") and dumpers ("D", slower, dump triple)
     for p in game.polluters:
         if 0 <= p["y"] < h and 0 <= p["x"] < w:
@@ -142,14 +148,27 @@ def draw(stdscr, game, best, paused):
     stdscr.addch(game.spirit_y, game.spirit_x, "@",
                  curses.color_pair(3) | curses.A_BOLD)
     # HUD
-    hud = " Score {:>6}   Best {:>6}   Level {}".format(game.score, best, game.level)
+    hud = " Score {:>6}   Best {:>6}   Level {} ({})".format(
+        game.score, best, game.level, game.difficulty)
     stdscr.addstr(0, 0, hud[:w - 1], curses.color_pair(7) | curses.A_BOLD)
     status = bar("Purity", game.purity) + "   " + bar("Wrath", game.wrath)
     if game.wrath >= 100:
         status += "  READY - press X!"
     elif game.combo >= 2:
-        status += "  COMBO x{}".format(game.combo)
+        # show combo with remaining timer as dots
+        timer_bars = int(round(game.combo_timer / game.COMBO_WINDOW * 5))
+        status += "  COMBO x{} {}".format(game.combo, "·" * timer_bars)
+    # level progress
+    lvl_pct = int(game.level_progress() * 100)
+    status += "  Lv:{}%".format(lvl_pct)
+    # danger warning
+    if danger:
+        status += "  ! {} near edge !".format(danger)
     stdscr.addstr(1, 0, status[:w - 1], curses.color_pair(7))
+    # surge cooldown indicator
+    if game.surge_cooldown > 0:
+        cd = " Surge ready in {}".format((game.surge_cooldown + 9) // 10)
+        stdscr.addstr(1, max(0, w - len(cd) - 1), cd[:w - 1], curses.color_pair(7) | curses.A_DIM)
     hint = "move: up/down or W/S    surge: SPACE    wrath: X    pause: P    quit: Q"
     stdscr.addstr(h - 1, 0, hint[:w - 1], curses.color_pair(7) | curses.A_DIM)
     if paused and not game.game_over:
@@ -167,7 +186,7 @@ def center_text(stdscr, y, text, attr=0):
         pass
 
 
-def title_screen(stdscr):
+def title_screen(stdscr, difficulty="normal", seed=None):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     y = max(1, h // 2 - 12)
@@ -178,6 +197,10 @@ def title_screen(stdscr):
     for line in STORY:
         center_text(stdscr, y, line, curses.color_pair(7))
         y += 1
+    y += 1
+    center_text(stdscr, y, "Difficulty: {}  {}".format(
+        difficulty.upper(), "(seed {})".format(seed) if seed is not None else ""),
+        curses.color_pair(5) | curses.A_BOLD)
     y += 1
     center_text(stdscr, y, "Controls: UP/DOWN or W/S to swim, SPACE to surge,",
                 curses.color_pair(7) | curses.A_DIM)
@@ -232,9 +255,9 @@ def prompt_initials(stdscr):
     return name or "YOU"
 
 
-def play(stdscr, data):
+def play(stdscr, data, difficulty="normal", seed=None):
     h, w = stdscr.getmaxyx()
-    game = GameState(w, h, seed=None)
+    game = GameState(w, h, seed=seed, difficulty=difficulty)
     paused = False
     prev_breaches = 0
     last = time.time()
@@ -267,7 +290,7 @@ def play(stdscr, data):
             key = stdscr.getch()
             stdscr.nodelay(True)
             if key in (ord("r"), ord("R")):
-                game = GameState(w, h, seed=None)
+                game = GameState(w, h, seed=seed, difficulty=difficulty)
                 paused = False
                 prev_breaches = 0
                 last = time.time()
@@ -304,7 +327,7 @@ def _flash():
         pass
 
 
-def main(stdscr):
+def main(stdscr, difficulty="normal", seed=None):
     curses.curs_set(0)
     init_colors()
     h, w = stdscr.getmaxyx()
@@ -316,8 +339,8 @@ def main(stdscr):
         stdscr.getch()
         return
     best = load_scores()
-    title_screen(stdscr)
-    play(stdscr, best)
+    title_screen(stdscr, difficulty=difficulty, seed=seed)
+    play(stdscr, best, difficulty=difficulty, seed=seed)
 
 
 def run(argv=None):
@@ -331,10 +354,41 @@ def run(argv=None):
         print(__doc__.strip())
         print()
         print("usage: riverside-wrath [--help] [--version]")
+        print("                      [--difficulty {calm,normal,raging}] [--seed N]")
         print("   or: python3 -m riverside_wrath [--help] [--version]")
+        print("                                 [--difficulty {calm,normal,raging}] [--seed N]")
+        print()
+        print("options:")
+        print("  --difficulty {calm,normal,raging}  game difficulty (default: normal)")
+        print("  --seed N                            random seed for reproducible runs")
         return
+    # parse game options
+    difficulty = "normal"
+    seed = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--difficulty" and i + 1 < len(args):
+            if args[i + 1] in ("calm", "normal", "raging"):
+                difficulty = args[i + 1]
+            else:
+                print("Unknown difficulty: {}".format(args[i + 1]), file=sys.stderr)
+                print("Choose from: calm, normal, raging", file=sys.stderr)
+                return
+            i += 2
+        elif args[i] == "--seed" and i + 1 < len(args):
+            try:
+                seed = int(args[i + 1])
+            except ValueError:
+                print("Seed must be an integer: {}".format(args[i + 1]), file=sys.stderr)
+                return
+            i += 2
+        elif args[i].startswith("-"):
+            print("Unknown option: {}".format(args[i]), file=sys.stderr)
+            return
+        else:
+            i += 1
     try:
-        curses.wrapper(main)
+        curses.wrapper(lambda stdscr: main(stdscr, difficulty=difficulty, seed=seed))
     except curses.error:
         print("Riverside Wrath needs a real terminal (curses could not start).")
 

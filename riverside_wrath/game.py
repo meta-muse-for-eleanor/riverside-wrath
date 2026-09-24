@@ -6,9 +6,21 @@ Rows 0-1 and the final two rows are reserved for HUD; the play area
 runs from PLAY_TOP to play_bottom inclusive.
 """
 
+from __future__ import annotations
+
 import random
+from typing import Dict, List, Literal
 
 PLAY_TOP = 2
+
+# Difficulty presets: spawn interval base, trash speed bonus, breach damage multiplier
+DifficultyName = Literal["calm", "normal", "raging"]
+
+DIFFICULTIES: Dict[DifficultyName, Dict[str, float]] = {
+    "calm": {"spawn_base": 40, "speed_bonus": 1, "damage_mult": 0.7, "max_polluters": 4},
+    "normal": {"spawn_base": 34, "speed_bonus": 0, "damage_mult": 1.0, "max_polluters": 6},
+    "raging": {"spawn_base": 26, "speed_bonus": -1, "damage_mult": 1.4, "max_polluters": 8},
+}
 
 
 class GameState:
@@ -28,19 +40,22 @@ class GameState:
     MAX_COMBO = 8
     MAX_POLLUTERS = 6
 
-    def __init__(self, width=80, height=24, seed=None):
+    def __init__(self, width: int = 80, height: int = 24, seed: int | None = None,
+                 difficulty: DifficultyName = "normal"):
         self.width = width
         self.height = height
         self.rng = random.Random(seed)
+        self.difficulty: DifficultyName = difficulty
+        self._diff = DIFFICULTIES[difficulty]
         self.play_bottom = height - 3
         mid = width // 2
         self.river_left = mid - 6
         self.river_right = mid + 6
         self.spirit_x = mid
         self.spirit_y = (PLAY_TOP + self.play_bottom) // 2
-        self.trash = []        # {"x": int, "y": int, "cd": int, "kind": "trash"|"sludge"}
-        self.polluters = []    # {"x","y","side","state","t"}
-        self.rings = []        # surge visuals: {"y": int, "ttl": int}
+        self.trash: List[Dict] = []        # {"x": int, "y": int, "cd": int, "kind": "trash"|"sludge"}
+        self.polluters: List[Dict] = []    # {"x","y","side","state","t"}
+        self.rings: List[Dict] = []        # surge visuals: {"y": int, "ttl": int}
         self.flood_ttl = 0
         self.score = 0
         self.purity = 100
@@ -54,15 +69,17 @@ class GameState:
         self.cleansed = 0
         self.combo = 0
         self.combo_timer = 0
+        # danger: ticks since last breach warning (for UI flash throttling)
+        self.danger_flash = 0
 
     # ------------------------------------------------------------------
     # player actions
     # ------------------------------------------------------------------
-    def move_spirit(self, dy):
+    def move_spirit(self, dy: int) -> None:
         """Move the spirit vertically, clamped to the play area."""
         self.spirit_y = max(PLAY_TOP, min(self.play_bottom, self.spirit_y + dy))
 
-    def surge(self):
+    def surge(self) -> bool:
         """Send a cleansing surge from the spirit. Returns True if fired."""
         if self.game_over or self.surge_cooldown > 0:
             return False
@@ -91,7 +108,7 @@ class GameState:
         self.polluters = kept_polluters
         return True
 
-    def unleash_wrath(self):
+    def unleash_wrath(self) -> bool:
         """Unleash the flood. Returns True if the wrath was ready."""
         if self.game_over or self.wrath < 100:
             return False
@@ -109,7 +126,7 @@ class GameState:
     # ------------------------------------------------------------------
     # simulation
     # ------------------------------------------------------------------
-    def tick(self):
+    def tick(self) -> None:
         """Advance the simulation by one tick."""
         if self.game_over:
             return
@@ -125,7 +142,7 @@ class GameState:
         self.spawn_timer -= 1
         if self.spawn_timer <= 0:
             self._spawn_polluter()
-            self.spawn_timer = max(10, 34 - self.level * 3)
+            self.spawn_timer = self._spawn_interval()
 
         self._step_polluters()
         self._step_trash()
@@ -162,17 +179,41 @@ class GameState:
             self._add_wrath(self.WRATH_PER_TRASH)
         self.cleansed += 1
 
-    def _add_wrath(self, n):
+    def _add_wrath(self, n: int) -> None:
         self.wrath = min(100, self.wrath + n)
 
-    def _trash_speed(self):
-        return max(2, 6 - self.level)
+    def score_to_next_level(self) -> int:
+        """Points needed to reach the next level."""
+        next_threshold = self.level * 250
+        return max(0, next_threshold - self.score)
 
-    def _spawn_polluter(self):
-        if len(self.polluters) >= self.MAX_POLLUTERS:
+    def level_progress(self) -> float:
+        """Fraction (0.0-1.0) of progress toward the next level."""
+        base = (self.level - 1) * 250
+        return min(1.0, max(0.0, (self.score - base) / 250))
+
+    def _trash_speed(self) -> int:
+        base = max(2, 6 - self.level)
+        return max(1, base + int(self._diff["speed_bonus"]))
+
+    def _spawn_interval(self) -> int:
+        base: float = self._diff["spawn_base"]  # type: ignore[assignment]
+        return max(8, int(base - self.level * 3))
+
+    def _max_polluters(self) -> int:
+        return int(self._diff["max_polluters"])
+
+    def _breach_damage(self, kind: str) -> int:
+        base = self.SLUDGE_DAMAGE if kind == "sludge" else self.BREACH_DAMAGE
+        return max(1, int(round(base * float(self._diff["damage_mult"]))))
+
+    def _spawn_polluter(self) -> None:
+        if len(self.polluters) >= self._max_polluters():
             return
         side = self.rng.choice((-1, 1))  # -1: west bank, +1: east bank
-        kind = "dumper" if self.rng.random() < 0.2 else "walker"
+        # Raging rivers attract more dumpers
+        dumper_chance = 0.2 + (0.1 if self.difficulty == "raging" else 0.0)
+        kind = "dumper" if self.rng.random() < dumper_chance else "walker"
         x = 2 if side < 0 else self.width - 3
         y = self.rng.randint(PLAY_TOP, self.play_bottom)
         self.polluters.append({"x": x, "y": y, "side": side, "kind": kind,
@@ -220,7 +261,7 @@ class GameState:
         else:
             self.trash.append({"x": x, "y": p["y"], "cd": speed, "kind": kind})
 
-    def _step_trash(self):
+    def _step_trash(self) -> None:
         kept = []
         for t in self.trash:
             t["cd"] -= 1
@@ -228,10 +269,17 @@ class GameState:
                 t["y"] += 1
                 t["cd"] = self._trash_speed()
             if t["y"] > self.play_bottom:
-                self.purity -= self.SLUDGE_DAMAGE if t["kind"] == "sludge" else self.BREACH_DAMAGE
+                self.purity -= self._breach_damage(t["kind"])
                 self.breaches += 1
                 self.combo = 0
                 self.combo_timer = 0
+                self.danger_flash = 6  # trigger UI warning
             else:
                 kept.append(t)
         self.trash = kept
+        if self.danger_flash > 0:
+            self.danger_flash -= 1
+
+    def trash_near_estuary(self, threshold: int = 3) -> int:
+        """Count trash within `threshold` rows of the estuary. For UI warnings."""
+        return sum(1 for t in self.trash if t["y"] >= self.play_bottom - threshold)
