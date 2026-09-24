@@ -3,6 +3,7 @@
 Run with:  python3 -m riverside_wrath
 """
 
+import argparse
 import curses
 import json
 import os
@@ -323,7 +324,7 @@ def play(stdscr, data, difficulty="normal", seed=None):
             key = stdscr.getch()
             stdscr.nodelay(True)
             if key in (ord("r"), ord("R")):
-                game = GameState(w, h, seed=seed, difficulty=difficulty)
+                game.reset()
                 paused = False
                 prev_breaches = 0
                 last = time.time()
@@ -376,52 +377,31 @@ def main(stdscr, difficulty="normal", seed=None):
     play(stdscr, best, difficulty=difficulty, seed=seed)
 
 
+def parse_args(argv=None):
+    """Parse CLI args. Returns a namespace with difficulty and seed."""
+    parser = argparse.ArgumentParser(
+        prog="riverside-wrath",
+        description="Riverside Wrath {} - a terminal game of river vengeance".format(__version__),
+    )
+    parser.add_argument("-V", "--version", action="version",
+                        version="riverside-wrath {}".format(__version__))
+    parser.add_argument("--difficulty", choices=("calm", "normal", "raging"),
+                        default="normal",
+                        help="game difficulty (default: normal)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="random seed for reproducible runs")
+    return parser.parse_args(argv)
+
+
 def run(argv=None):
-    args = sys.argv[1:] if argv is None else argv
-    if "-V" in args or "--version" in args:
-        print("riverside-wrath {}".format(__version__))
-        return
-    if "-h" in args or "--help" in args:
-        print("riverside-wrath {} - a terminal game of river vengeance".format(__version__))
-        print()
-        print(__doc__.strip())
-        print()
-        print("usage: riverside-wrath [--help] [--version]")
-        print("                      [--difficulty {calm,normal,raging}] [--seed N]")
-        print("   or: python3 -m riverside_wrath [--help] [--version]")
-        print("                                 [--difficulty {calm,normal,raging}] [--seed N]")
-        print()
-        print("options:")
-        print("  --difficulty {calm,normal,raging}  game difficulty (default: normal)")
-        print("  --seed N                            random seed for reproducible runs")
-        return
-    # parse game options
-    difficulty = "normal"
-    seed = None
-    i = 0
-    while i < len(args):
-        if args[i] == "--difficulty" and i + 1 < len(args):
-            if args[i + 1] in ("calm", "normal", "raging"):
-                difficulty = args[i + 1]
-            else:
-                print("Unknown difficulty: {}".format(args[i + 1]), file=sys.stderr)
-                print("Choose from: calm, normal, raging", file=sys.stderr)
-                return
-            i += 2
-        elif args[i] == "--seed" and i + 1 < len(args):
-            try:
-                seed = int(args[i + 1])
-            except ValueError:
-                print("Seed must be an integer: {}".format(args[i + 1]), file=sys.stderr)
-                return
-            i += 2
-        elif args[i].startswith("-"):
-            print("Unknown option: {}".format(args[i]), file=sys.stderr)
-            return
-        else:
-            i += 1
     try:
-        curses.wrapper(lambda stdscr: main(stdscr, difficulty=difficulty, seed=seed))
+        args = parse_args(sys.argv[1:] if argv is None else argv)
+    except SystemExit:
+        # argparse already printed --help / --version; don't start curses
+        return
+    try:
+        curses.wrapper(lambda stdscr: main(stdscr, difficulty=args.difficulty,
+                                           seed=args.seed))
     except curses.error:
         print("Riverside Wrath needs a real terminal (curses could not start).")
 

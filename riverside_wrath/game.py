@@ -9,14 +9,16 @@ runs from PLAY_TOP to play_bottom inclusive.
 from __future__ import annotations
 
 import random
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Union
+
+__all__ = ["GameState", "PLAY_TOP", "DIFFICULTIES", "DifficultyName"]
 
 PLAY_TOP = 2
 
 # Difficulty presets: spawn interval base, trash speed bonus, breach damage multiplier
 DifficultyName = Literal["calm", "normal", "raging"]
 
-DIFFICULTIES: Dict[DifficultyName, Dict[str, float]] = {
+DIFFICULTIES: Dict[DifficultyName, Dict[str, Union[int, float]]] = {
     "calm": {"spawn_base": 40, "speed_bonus": 1, "damage_mult": 0.7, "max_polluters": 4},
     "normal": {"spawn_base": 34, "speed_bonus": 0, "damage_mult": 1.0, "max_polluters": 6},
     "raging": {"spawn_base": 26, "speed_bonus": -1, "damage_mult": 1.4, "max_polluters": 8},
@@ -44,6 +46,7 @@ class GameState:
                  difficulty: DifficultyName = "normal"):
         self.width = width
         self.height = height
+        self._seed = seed
         self.rng = random.Random(seed)
         self.difficulty: DifficultyName = difficulty
         self._diff = DIFFICULTIES[difficulty]
@@ -51,6 +54,15 @@ class GameState:
         mid = width // 2
         self.river_left = mid - 6
         self.river_right = mid + 6
+        self.reset()
+
+    def reset(self) -> None:
+        """Reset mutable game state for a new run, keeping dimensions and seed.
+
+        Re-seeds the RNG so a fixed seed replays the same river.
+        """
+        self.rng = random.Random(self._seed)
+        mid = self.width // 2
         self.spirit_x = mid
         self.spirit_y = (PLAY_TOP + self.play_bottom) // 2
         self.trash: List[Dict] = []        # {"x": int, "y": int, "cd": int, "kind": "trash"|"sludge"}
@@ -97,40 +109,52 @@ class GameState:
         self.rings.append({"y": self.spirit_y, "ttl": 5})
         r2 = self.SURGE_RADIUS ** 2
         pr2 = (self.SURGE_RADIUS + 2) ** 2
-        kept_trash = []
-        for t in self.trash:
-            if self._dist2(t["x"], t["y"], self.spirit_x, self.spirit_y) <= r2:
-                self._cleanse_trash(t["kind"])
+
+        def within_radius(item, radius2):
+            return self._dist2(item["x"], item["y"],
+                               self.spirit_x, self.spirit_y) <= radius2
+
+        # Cleanse trash in radius, keep the rest
+        hit, self.trash = self._partition(self.trash, lambda t: within_radius(t, r2))
+        for t in hit:
+            self._cleanse_trash(t["kind"])
+
+        # Scare off polluters in the wider radius
+        fled, self.polluters = self._partition(self.polluters,
+                                               lambda p: within_radius(p, pr2))
+        for p in fled:
+            if p["kind"] == "dumper":
+                self.score += self.DUMPER_SCORE
+                self._add_wrath(self.WRATH_PER_DUMPER)
             else:
-                kept_trash.append(t)
-        self.trash = kept_trash
-        kept_polluters = []
-        for p in self.polluters:
-            if self._dist2(p["x"], p["y"], self.spirit_x, self.spirit_y) <= pr2:
-                if p["kind"] == "dumper":
-                    self.score += self.DUMPER_SCORE
-                    self._add_wrath(self.WRATH_PER_DUMPER)
-                else:
-                    self.score += self.POLLUTER_SCORE
-                    self._add_wrath(self.WRATH_PER_POLLUTER)
-            else:
-                kept_polluters.append(p)
-        self.polluters = kept_polluters
-        # a surge also gathers nearby pure droplets
-        kept_droplets = []
-        for d in self.droplets:
-            if self._dist2(d["x"], d["y"], self.spirit_x, self.spirit_y) <= r2:
-                self._collect_droplet()
-            else:
-                kept_droplets.append(d)
-        self.droplets = kept_droplets
+                self.score += self.POLLUTER_SCORE
+                self._add_wrath(self.WRATH_PER_POLLUTER)
+
+        # A surge also gathers nearby pure droplets
+        caught, self.droplets = self._partition(self.droplets,
+                                                lambda d: within_radius(d, r2))
+        for _ in caught:
+            self._collect_droplet()
         return True
 
+    @staticmethod
+    def _partition(items, pred):
+        """Split items into (matching, non-matching) lists."""
+        yes, no = [], []
+        for item in items:
+            (yes if pred(item) else no).append(item)
+        return yes, no
+
     def unleash_wrath(self) -> bool:
-        """Unleash the flood. Returns True if the wrath was ready."""
+        """Unleash the flood. Returns True if the wrath was ready.
+
+        Flood scoring is deliberately modest (half the base cleanse value)
+        — it's a panic button, not a combo engine.
+        """
         if self.game_over or self.wrath < 100:
             return False
-        self.score += sum(10 if t["kind"] == "sludge" else 5 for t in self.trash)
+        self.score += sum(self.SLUDGE_SCORE // 2 if t["kind"] == "sludge"
+                          else self.TRASH_SCORE // 2 for t in self.trash)
         self.score += sum(self.DUMPER_SCORE if p["kind"] == "dumper"
                           else self.POLLUTER_SCORE for p in self.polluters)
         self.cleansed += len(self.trash)
@@ -222,8 +246,8 @@ class GameState:
         return max(1, base + int(self._diff["speed_bonus"]))
 
     def _spawn_interval(self) -> int:
-        base: float = self._diff["spawn_base"]  # type: ignore[assignment]
-        return max(8, int(base - self.level * 3))
+        base = int(self._diff["spawn_base"])
+        return max(8, base - self.level * 3)
 
     def _max_polluters(self) -> int:
         return int(self._diff["max_polluters"])
