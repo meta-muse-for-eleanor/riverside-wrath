@@ -6,8 +6,10 @@ Run with:  python3 -m riverside_wrath
 import curses
 import json
 import os
+import sys
 import time
 
+from . import __version__
 from .game import GameState, PLAY_TOP
 
 BEST_FILE = os.path.expanduser("~/.riverside-wrath-best")
@@ -318,7 +320,19 @@ def main(stdscr):
     play(stdscr, best)
 
 
-def run():
+def run(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if "-V" in args or "--version" in args:
+        print("riverside-wrath {}".format(__version__))
+        return
+    if "-h" in args or "--help" in args:
+        print("riverside-wrath {} - a terminal game of river vengeance".format(__version__))
+        print()
+        print(__doc__.strip())
+        print()
+        print("usage: riverside-wrath [--help] [--version]")
+        print("   or: python3 -m riverside_wrath [--help] [--version]")
+        return
     try:
         curses.wrapper(main)
     except curses.error:

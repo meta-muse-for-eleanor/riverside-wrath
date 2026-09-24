@@ -20,14 +20,12 @@ class GameState:
     DUMPER_SCORE = 50
     WRATH_PER_TRASH = 5
     WRATH_PER_SLUDGE = 8
-    WRATH_PER_POLlUTER = 10
+    WRATH_PER_POLLUTER = 10
     WRATH_PER_DUMPER = 20
     BREACH_DAMAGE = 10
     SLUDGE_DAMAGE = 20
     COMBO_WINDOW = 40  # ticks a combo stays alive between cleanses
     MAX_COMBO = 8
-    WRATH_PER_TRASH = 5
-    WRATH_PER_POLlUTER = 10
     MAX_POLLUTERS = 6
 
     def __init__(self, width=80, height=24, seed=None):
@@ -40,7 +38,7 @@ class GameState:
         self.river_right = mid + 6
         self.spirit_x = mid
         self.spirit_y = (PLAY_TOP + self.play_bottom) // 2
-        self.trash = []        # {"x": int, "y": int, "cd": int}
+        self.trash = []        # {"x": int, "y": int, "cd": int, "kind": "trash"|"sludge"}
         self.polluters = []    # {"x","y","side","state","t"}
         self.rings = []        # surge visuals: {"y": int, "ttl": int}
         self.flood_ttl = 0
@@ -87,7 +85,7 @@ class GameState:
                     self._add_wrath(self.WRATH_PER_DUMPER)
                 else:
                     self.score += self.POLLUTER_SCORE
-                    self._add_wrath(self.WRATH_PER_POLlUTER)
+                    self._add_wrath(self.WRATH_PER_POLLUTER)
             else:
                 kept_polluters.append(p)
         self.polluters = kept_polluters

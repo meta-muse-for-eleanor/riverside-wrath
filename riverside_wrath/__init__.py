@@ -7,4 +7,4 @@ If too much trash reaches the estuary, your purity hits zero and
 the river is tamed. Game over.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

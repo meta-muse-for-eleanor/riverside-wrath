@@ -203,6 +203,27 @@ def test_sludge_cleanses_for_more():
     assert g.wrath == GameState.WRATH_PER_SLUDGE
 
 
+def test_cli_version_flag_skips_curses():
+    import io
+    from contextlib import redirect_stdout
+    from riverside_wrath import __main__ as front
+    from riverside_wrath import __version__
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        front.run(["--version"])
+    assert __version__ in buf.getvalue(), "version flag should print the version"
+
+
+def test_cli_help_flag_skips_curses():
+    import io
+    from contextlib import redirect_stdout
+    from riverside_wrath import __main__ as front
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        front.run(["--help"])
+    assert "usage" in buf.getvalue().lower(), "help flag should print usage"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(
             [(k, v) for k, v in globals().items() if k.startswith("test_")]):

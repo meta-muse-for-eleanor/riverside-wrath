@@ -11,7 +11,7 @@ unleash the flood.
 
 ## Play
 
-Requires Python 3 and a terminal (uses `curses`, ships with Python on
+Requires Python 3.8+ and a terminal (uses `curses`, ships with Python on
 macOS/Linux; needs at least an 80x24 window... 70x22 minimum, really).
 
 ```sh
@@ -19,6 +19,14 @@ python3 -m riverside_wrath
 ```
 
 No dependencies beyond the standard library.
+
+## Install
+
+```sh
+pip install .
+riverside-wrath          # same game, as a command
+riverside-wrath --help   # usage
+```
 
 ## Controls
 
@@ -53,8 +61,9 @@ No dependencies beyond the standard library.
 
 ```
 riverside-wrath/
+├── pyproject.toml       # packaging: pip install . gives the riverside-wrath command
 ├── riverside_wrath/
-│   ├── __init__.py      # package blurb
+│   ├── __init__.py      # package blurb, __version__
 │   ├── __main__.py      # curses front-end (python3 -m riverside_wrath)
 │   └── game.py          # pure game logic, no curses dependency
 └── tests/

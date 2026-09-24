@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "riverside-wrath"
+version = "0.2.0"
+description = "Riverside Wrath - a terminal game of river vengeance"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+
+[project.scripts]
+riverside-wrath = "riverside_wrath.__main__:run"
+
+[tool.setuptools.packages.find]
+include = ["riverside_wrath*"]
